@@ -1,0 +1,3 @@
+export function status(item,now){if(item.done)return 'done';if(item.due<now)return 'overdue';if(item.due-now<=48*60*60*1000)return 'soon';return 'later'}
+export function score(item){return item.done?(item.completedAt!=null&&item.completedAt<=item.due?35:15):0}
+export function summary(items,now){const open=items.filter(x=>!x.done),soon=open.filter(x=>status(x,now)==='soon').length,overdue=open.filter(x=>status(x,now)==='overdue').length,xp=items.reduce((n,x)=>n+score(x),0),pressure=soon+overdue*2;return {soon,overdue,completed:items.length-open.length,xp,level:Math.floor(xp/100)+1,progress:xp%100,mood:pressure>=4?'volatile':pressure?'uneasy':'calm'}}

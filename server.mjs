@@ -1,0 +1,20 @@
+import {createServer} from 'node:http';
+import {readFileSync} from 'node:fs';
+import {resolve,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {Firestore} from '@google-cloud/firestore';
+import {status,score,summary} from './game.mjs';
+const root=dirname(fileURLToPath(import.meta.url));
+const port=Number(process.env.PORT||8080);
+if(!Number.isInteger(port)||port<1||port>65535)throw Error('Invalid PORT');
+const db=new Firestore();
+const tasks=db.collection('arcane_assignments');
+const html=readFileSync(resolve(root,'index.html'),'utf8');
+const client=readFileSync(resolve(root,'client.js'),'utf8');
+const game=readFileSync(resolve(root,'game.mjs'),'utf8');
+const headers={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'"};
+function send(res,code,value){res.writeHead(code,{...headers,'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value))}
+function asset(res,type,text){res.writeHead(200,{...headers,'Content-Type':type});res.end(text)}
+async function parse(req){if(!req.headers['content-type']?.startsWith('application/json'))throw Error('Expected JSON');let raw='';for await(const part of req){raw+=part;if(raw.length>16384)throw Error('Request too large')}try{return JSON.parse(raw)}catch{throw Error('Invalid JSON')}}
+function task(doc){return {id:doc.id,title:doc.get('title'),due:doc.get('due'),done:doc.get('done')===true,completedAt:doc.get('completedAt')??null}}
+createServer(async(req,res)=>{try{const url=new URL(req.url,'http://localhost');const path=url.pathname;const method=req.method;if(method==='GET'&&(path==='/'||path==='/index.html'))return asset(res,'text/html; charset=utf-8',html);if(method==='GET'&&path==='/client.js')return asset(res,'text/javascript; charset=utf-8',client);if(method==='GET'&&path==='/game.mjs')return asset(res,'text/javascript; charset=utf-8',game);if(!path.startsWith('/api/'))return send(res,404,{error:'Not found'});if(method!=='GET'&&req.headers.origin){let origin;try{origin=new URL(req.headers.origin)}catch{return send(res,403,{error:'Invalid origin'})}if(origin.host!==req.headers.host||!['https:','http:'].includes(origin.protocol))return send(res,403,{error:'Cross-origin write denied'})}if(method==='GET'&&path==='/api/tasks'){const snapshot=await tasks.limit(500).get();return send(res,200,snapshot.docs.map(task).sort((a,b)=>Number(a.done)-Number(b.done)||a.due-b.due))}if(method==='POST'&&path==='/api/tasks'){const data=await parse(req);const title=typeof data?.title==='string'?data.title.trim():'';const due=data?.due;if(!title||title.length>120||!Number.isSafeInteger(due)||due<946684800000||due>4102444800000)return send(res,400,{error:'Enter a title (1–120 characters) and a valid due date'});const ref=tasks.doc();await ref.create({title,due,done:false,completedAt:null});return send(res,201,task(await ref.get()))}const match=/^\/api\/tasks\/([a-zA-Z0-9]{10,30})$/.exec(path);if(match&&method==='PATCH'){const data=await parse(req);if(typeof data?.done!=='boolean')return send(res,400,{error:'done must be true or false'});const ref=tasks.doc(match[1]);try{await ref.update({done:data.done,completedAt:data.done?Date.now():null})}catch(error){if(error.code===5)return send(res,404,{error:'Task not found'});throw error}return send(res,200,task(await ref.get()))}if(match&&method==='DELETE'){const ref=tasks.doc(match[1]);const snapshot=await ref.get();if(!snapshot.exists)return send(res,404,{error:'Task not found'});await ref.delete();return send(res,200,{ok:true})}return send(res,404,{error:'Not found'})}catch(error){if(['Expected JSON','Invalid JSON','Request too large'].includes(error.message))return send(res,400,{error:error.message});console.error(error);send(res,500,{error:'Server error'})}}).listen(port,'0.0.0.0',()=>console.log(`Arcane Assignments listening on ${port}`));
