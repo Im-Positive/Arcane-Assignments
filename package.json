@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
-  "scripts": {"start": "node server.mjs", "test": "node --test"},
-  "dependencies": {"@google-cloud/firestore": "^7.11.0"}
+  "scripts": {"start": "node server.mjs", "test": "node --test", "vapid": "web-push generate-vapid-keys --json"},
+  "dependencies": {"@google-cloud/firestore": "^7.11.0", "web-push": "^3.6.7"}
 }
